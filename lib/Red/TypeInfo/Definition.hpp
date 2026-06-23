@@ -704,7 +704,8 @@ class ClassDescriptorDefaultImpl : public ClassDescriptor<TClass>
         }
         else if constexpr (std::is_copy_constructible_v<TClass>)
         {
-            new (aLhs) TClass(*static_cast<const TClass*>(aRhs));
+            reinterpret_cast<TClass*>(aLhs)->~TClass();
+            new (aLhs) TClass(*reinterpret_cast<const TClass*>(aRhs));
         }
     }
 
