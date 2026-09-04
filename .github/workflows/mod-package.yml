@@ -1,0 +1,62 @@
+name: Build Mod Package
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  TARGET_PLATFORM: windows
+  TARGET_ARCH: x64
+  # Reserved, disabled targets: windows_arm, macos_x64, macos_arm, linux_x64, linux_arm.
+  MOD_NAME: TweakXL
+
+jobs:
+  package:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      - uses: xmake-io/github-action-setup-xmake@v1
+      - name: Apply tag version to source
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          (Get-Content xmake.lua -Raw) -replace 'set_version\("[^"]+"', "set_version(`"$version`"" | Set-Content xmake.lua
+      - name: Build windows_x64
+        run: |
+          xmake config --arch=x64 --mode=release --yes
+          xmake build
+      - name: Package
+        shell: pwsh
+        run: |
+          $dll = Get-ChildItem build -Recurse -Filter TweakXL.dll | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $dll) { throw "TweakXL.dll was not produced" }
+          ./tools/dist/package-mod.ps1 -ReleaseBin $dll
+      - name: Normalize artifact name
+        id: meta
+        shell: pwsh
+        run: |
+          $version = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '0.0.0' }
+          $suffix = if ($env:GITHUB_REF_TYPE -eq 'tag') { '' } else { "_$(Get-Date -Format 'yyyy.M').$((git rev-list --count --since="$(Get-Date -Day 1 -Format yyyy-MM-dd)" HEAD))" }
+          $artifact = "${env:MOD_NAME}_v${version}_${env:TARGET_PLATFORM}_${env:TARGET_ARCH}${suffix}.zip"
+          $source = Get-ChildItem build/dist -Filter *.zip | Select-Object -First 1
+          Move-Item -LiteralPath $source.FullName -Destination "build/dist/$artifact" -Force
+          "artifact=$artifact" >> $env:GITHUB_OUTPUT
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.artifact }}
+          path: build/dist/${{ steps.meta.outputs.artifact }}
+          if-no-files-found: error
+      - name: Create draft release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$env:GITHUB_REF_NAME" "build/dist/${{ steps.meta.outputs.artifact }}" --draft --generate-notes --verify-tag
