@@ -29,6 +29,9 @@ else
     set_runtimes("MD")
 end
 
+-- tiltedcore / mimalloc: keep 2.x (3.x breaks TiltedCore's MimallocAllocator — missing mi_malloc_size).
+add_requireconfs("*.mimalloc", { version = "2.2.4", override = true })
+
 add_requires("hopscotch-map", "minhook", "spdlog", "tiltedcore", "yaml-cpp")
 
 target("TweakXL")
